@@ -11,64 +11,15 @@ pub struct Rectangle {
 }
 
 impl Rectangle {
-    fn id(&self) -> (u32, u32) {
+    fn id(&self) -> RectId {
         (self.x, self.y)
     }
 
-    fn coalesce(&self, other: &Rectangle) -> Option<Rectangle> {
-        if self.width == other.width && self.x == other.x {
-            if self.y + self.height == other.y {
-                return Some(Rectangle {
-                    height: self.height + other.height,
-                    ..*self
-                });
-            } else if self.y == other.y + other.height {
-                return Some(Rectangle {
-                    height: self.height + other.height,
-                    ..*other
-                });
-            }
-        } else if self.height == other.height && self.y == other.y {
-            if self.x + self.width == other.x {
-                return Some(Rectangle {
-                    width: self.width + other.width,
-                    ..*self
-                });
-            } else if other.x + other.width == self.x {
-                return Some(Rectangle {
-                    width: self.width + other.width,
-                    ..*other
-                });
-            }
-        }
-
-        None
-    }
-
-    fn split_horizonal(self, width: u32) -> (Rectangle, Rectangle) {
-        assert!(width <= self.width);
-
-        (
-            Rectangle { width, ..self },
-            Rectangle {
-                x: self.x + width,
-                width: self.width - width,
-                ..self
-            },
-        )
-    }
-
-    fn split_vertical(self, height: u32) -> (Rectangle, Rectangle) {
-        assert!(height <= self.height);
-
-        (
-            Rectangle { height, ..self },
-            Rectangle {
-                y: self.y + height,
-                height: self.height - height,
-                ..self
-            },
-        )
+    fn intersects(&self, other: &Rectangle) -> bool {
+        self.x < other.end_x()
+            && self.end_x() > other.x
+            && self.y < other.end_y()
+            && self.end_y() > other.y
     }
 
     /// The x coordinate of the far edge of the rectangle.
@@ -80,38 +31,6 @@ impl Rectangle {
     pub fn end_y(&self) -> u32 {
         self.y + self.height
     }
-}
-
-/// Returns the number of rectangles coalesced
-fn coalesce_all(rects: &mut RectMap) -> usize {
-    let mut remove = vec![];
-    let mut new_rects = vec![];
-
-    for (i, (id1, rect1)) in rects.iter().enumerate() {
-        for (id2, rect2) in rects.iter().skip(i + 1) {
-            if let Some(rect) = rect1.coalesce(rect2) {
-                remove.push(*id1);
-                remove.push(*id2);
-                new_rects.push(rect);
-            }
-        }
-    }
-
-    let num_coalesced = new_rects.len();
-
-    for id in remove {
-        rects.remove(&id);
-    }
-
-    for rect in new_rects {
-        append_rect(rects, rect);
-    }
-
-    if num_coalesced > 0 {
-        coalesce_all(rects);
-    }
-
-    num_coalesced
 }
 
 /// A 2D arena for allocating rectangles.
@@ -126,12 +45,15 @@ impl Arena {
     /// Create a new arena with the given width and height.
     pub fn new(width: u32, height: u32) -> Self {
         let mut free = HashMap::new();
-        append_rect(&mut free, Rectangle {
-            x: 0,
-            y: 0,
-            width,
-            height,
-        });
+        append_rect(
+            &mut free,
+            Rectangle {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            },
+        );
 
         Self {
             width,
@@ -148,78 +70,43 @@ impl Arena {
             return Err(Error::InvalidSize);
         }
 
-        coalesce_all(&mut self.free);
+        let mut spot = None;
+        'outer: for (id, rect) in self.free.iter() {
+            let rect = Rectangle { width, height, ..*rect };
+            
+            if rect.end_x() > self.width || rect.end_y() > self.height {
+                continue;
+            }
 
-        // Find rect of same width and height
-        if let Some(rect) = self
-            .free
-            .values()
-            .find(|rect| rect.width == width && rect.height == height)
-            .cloned()
-        {
-            self.free.remove(&rect.id());
-            append_rect(&mut self.allocated, rect.clone());
-            return Ok(rect);
+            for allocated in self.allocated.values() {
+                if rect.intersects(allocated) {
+                    continue 'outer;
+                }
+            }
+
+            // TODO: check heuristics for best fit
+            spot = Some(*id);
         }
 
-        // Find rect of same width
-        if let Some(rect) = self
+        let Some(id) = spot else {
+            return Err(Error::OutOfSpace);
+        };
+
+        let rect = self
             .free
-            .values()
-            .find(|rect| rect.width == width && rect.height >= height)
-            .cloned()
-        {
-            self.free.remove(&rect.id());
-            let (alloced, remaining) = rect.split_vertical(height);
-            append_rect(&mut self.free, remaining);
-            append_rect(&mut self.allocated, alloced.clone());
+            .remove(&id)
+            .unwrap();
 
-            assert_eq!(alloced.width, width);
-            assert_eq!(alloced.height, height);
-            return Ok(alloced);
-        }
+        let alloced = Rectangle { width, height, ..rect };
+        append_rect(&mut self.allocated, alloced.clone());
 
-        // Find rect of same height
-        if let Some(rect) = self
-            .free
-            .values()
-            .find(|rect| rect.height == height && rect.width >= width)
-            .cloned()
-        {
-            self.free.remove(&rect.id());
-            let (alloced, remaining) = rect.split_horizonal(width);
-            append_rect(&mut self.free, remaining);
-            append_rect(&mut self.allocated, alloced.clone());
+        append_rect(&mut self.free, Rectangle { x: alloced.end_x(), ..rect });
+        append_rect(&mut self.free, Rectangle { y: alloced.end_y(), ..rect });
 
-            assert_eq!(alloced.width, width);
-            assert_eq!(alloced.height, height);
-            return Ok(alloced);
-        }
+        assert_eq!(alloced.width, width);
+        assert_eq!(alloced.height, height);
 
-        // Find any rect that fits
-
-        if let Some(rect) = self
-            .free
-            .values()
-            .find(|rect| rect.width >= width && rect.height >= height)
-            .cloned()
-        {
-            self.free.remove(&rect.id());
-
-            let (alloced, remaining) = rect.split_horizonal(width);
-            append_rect(&mut self.free, remaining);
-
-            let (alloced, remaining) = alloced.split_vertical(height);
-            append_rect(&mut self.free, remaining);
-
-            append_rect(&mut self.allocated, alloced.clone());
-
-            assert_eq!(alloced.width, width);
-            assert_eq!(alloced.height, height);
-            return Ok(alloced);
-        }
-
-        Err(Error::OutOfSpace)
+        Ok(alloced)
     }
 
     /// Deallocate the given rectangle and free the area to be allocated again.
@@ -238,6 +125,11 @@ impl Arena {
     /// Returns an iterator over all allocated rectangles.
     pub fn allocated(&self) -> impl Iterator<Item = &Rectangle> {
         self.allocated.values()
+    }
+
+    /// Returns total dimensions of the arena.
+    pub fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
     }
 }
 
@@ -266,4 +158,3 @@ impl Display for Error {
 }
 
 impl std::error::Error for Error {}
-
