@@ -45,7 +45,7 @@ impl Rectangle {
         None
     }
 
-    fn split_h(self, width: u32) -> (Rectangle, Rectangle) {
+    fn split_horizonal(self, width: u32) -> (Rectangle, Rectangle) {
         assert!(width <= self.width);
 
         (
@@ -58,7 +58,7 @@ impl Rectangle {
         )
     }
 
-    fn split_v(self, height: u32) -> (Rectangle, Rectangle) {
+    fn split_vertical(self, height: u32) -> (Rectangle, Rectangle) {
         assert!(height <= self.height);
 
         (
@@ -170,9 +170,12 @@ impl Arena {
             .cloned()
         {
             self.free.remove(&rect.id());
-            let (alloced, remaining) = rect.split_h(width);
+            let (alloced, remaining) = rect.split_vertical(height);
             append_rect(&mut self.free, remaining);
             append_rect(&mut self.allocated, alloced.clone());
+
+            assert_eq!(alloced.width, width);
+            assert_eq!(alloced.height, height);
             return Ok(alloced);
         }
 
@@ -184,9 +187,12 @@ impl Arena {
             .cloned()
         {
             self.free.remove(&rect.id());
-            let (alloced, remaining) = rect.split_h(height);
+            let (alloced, remaining) = rect.split_horizonal(width);
             append_rect(&mut self.free, remaining);
             append_rect(&mut self.allocated, alloced.clone());
+
+            assert_eq!(alloced.width, width);
+            assert_eq!(alloced.height, height);
             return Ok(alloced);
         }
 
@@ -199,11 +205,17 @@ impl Arena {
             .cloned()
         {
             self.free.remove(&rect.id());
-            let (alloced, remaining) = rect.split_h(width);
+
+            let (alloced, remaining) = rect.split_horizonal(width);
             append_rect(&mut self.free, remaining);
-            let (alloced, remaining) = alloced.split_v(height);
+
+            let (alloced, remaining) = alloced.split_vertical(height);
             append_rect(&mut self.free, remaining);
+
             append_rect(&mut self.allocated, alloced.clone());
+
+            assert_eq!(alloced.width, width);
+            assert_eq!(alloced.height, height);
             return Ok(alloced);
         }
 
