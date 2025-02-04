@@ -1,8 +1,8 @@
 # rectpack
 
-2D rectangle bin packing algorithms focused on simplicity for efficiently and dynamically packing rectangles into a bin. 
-Features an `alloc` `free` function to dynamically allocate and deallocate rectangles.
-The implementation in only a few hundred lines and is designed to be easy to hack.
+A 2D rectangle bin packer for efficiently and dynamically packing rectangles with a focus on simplicity. 
+Features `alloc` and `free` functions to dynamically allocate and deallocate rectangles.
+The implementation is only a few hundred lines and is designed to be easy to hack.
 
 ## Example
 
